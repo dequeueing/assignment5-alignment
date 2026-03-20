@@ -180,6 +180,17 @@ def get_response_log_probs(
     return result
 
 
+def masked_normalize(tensor, mask, dim=None, normalize_constant=1.0):
+    masked_tensor = tensor * mask
+    
+    if dim is None:
+        total_sum = torch.sum(masked_tensor)
+    else:
+        total_sum = torch.sum(masked_tensor, dim=int(dim))
+        
+    return total_sum / normalize_constant
+
+
             
 if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-Math-1.5B")
