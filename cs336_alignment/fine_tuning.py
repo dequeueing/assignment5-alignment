@@ -5,7 +5,7 @@ import logging
 
 from typing import List
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -156,6 +156,30 @@ def compute_entropy(logits:torch.Tensor) -> torch.Tensor:
     log_p = torch.log_softmax(logits, dim=-1)
     entropy = -(log_p.exp() * log_p).sum(dim=-1)
     return entropy
+
+def get_response_log_probs(
+    model: PreTrainedModel,
+    input_ids: torch.Tensor,
+    labels: torch.Tensor,
+    return_token_entropy: bool = False,
+) -> dict[str, torch.Tensor]:
+    """
+    Shape of tensors:
+    1. input_ids: (batch_size, seq_len)
+    2. labels: (batch_size, seq_len)
+    """
+    model_outputs = model(input_ids=input_ids)
+    logits = model_outputs.logits if hasattr(model_outputs, "logits") else model_outputs[0]
+    log_probs = F.log_softmax(logits, dim=-1)
+    token_log_probs = torch.gather(log_probs, dim=-1, index=labels.unsqueeze(-1)).squeeze(-1)
+    result = {
+        "log_probs": token_log_probs,
+    }
+    if return_token_entropy:
+        result["token_entropy"] = compute_entropy(logits=logits)
+    return result
+
+
             
 if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-Math-1.5B")
