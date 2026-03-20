@@ -1,9 +1,15 @@
 import torch
 import torch.nn.functional as F
 
+import logging
+
 from typing import List
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Configure logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def load_model():
@@ -79,14 +85,14 @@ def tokenize_prompt_and_output(prompt_strs: List[str], output_strs: List[str], t
     batch_size = len(prompt_strs)
 
     for idx, (prompt, response) in enumerate(zip(prompt_strs, output_strs)):
-        print(idx, prompt, response)
+        logger.debug(f"{idx} {prompt} {response}")
         
         # tokenize prompt and response 
         prompt_tokenized   = tokenizer(prompt, return_tensors="pt")
         response_tokenized = tokenizer(response, return_tensors="pt")
         
-        print(f"prompt_tokenized result:\n{prompt_tokenized}")
-        print(f"response_tokenized result:\n{response_tokenized}")
+        logger.debug(f"prompt_tokenized result:\n{prompt_tokenized}")
+        logger.debug(f"response_tokenized result:\n{response_tokenized}")
         
         prompt_ids    = prompt_tokenized['input_ids'].squeeze(0)
         response_ids  = response_tokenized['input_ids'].squeeze(0)
@@ -100,7 +106,7 @@ def tokenize_prompt_and_output(prompt_strs: List[str], output_strs: List[str], t
         
         # concat prompt and response 
         ids_concat = torch.concat([prompt_ids, response_ids])
-        print(f"After concat, the ids look like:\n{ids_concat}")
+        logger.debug(f"After concat, the ids look like:\n{ids_concat}")
         
         # Store the concatenated ids and length info for later padding and shifting
         input_ids_cache.append(ids_concat)
@@ -109,42 +115,37 @@ def tokenize_prompt_and_output(prompt_strs: List[str], output_strs: List[str], t
         # record the longest total length for later padding 
         max_len = max(max_len, total_len)
         
-    # construct padding tensors aforehand
-    # Note: input_ids and labels have length max_len - 1 due to shifting
+    # Construct padding tensors of length max_len (before shift)
+    # Strategy: build the full matrix first, then shift at the end
     pad_id = tokenizer.pad_token_id
-    input_ids_batch = torch.full((batch_size, max_len - 1), pad_id)
-    labels_batch    = torch.full((batch_size, max_len - 1), pad_id)
-    mask_batch      = torch.zeros((batch_size, max_len - 1), dtype=torch.bool)
+    input_ids_batch = torch.full((batch_size, max_len), pad_id)
+    labels_batch    = torch.full((batch_size, max_len), pad_id)
+    mask_batch      = torch.zeros((batch_size, max_len), dtype=torch.bool)
     
-    # pad and shift these batch tensors
+    # Fill the batch tensors with concatenated ids and masks
     for i in range(batch_size):
-        # First pad the concatenated ids to max_len
         ids_concat = input_ids_cache[i]
-        ids_padded = torch.full((max_len,), pad_id)
-        ids_padded[:len(ids_concat)] = ids_concat
+        # Fill in the concatenated ids directly (no shift yet)
+        input_ids_batch[i, :len(ids_concat)] = ids_concat
+        labels_batch[i, :len(ids_concat)] = ids_concat
         
-        # Then shift: input_ids = padded[:-1], labels = padded[1:]
-        input_ids_batch[i, :] = ids_padded[:-1]
-        labels_batch[i, :] = ids_padded[1:]
-        
-        # construct mask from length info
+        # Construct mask: set True for response positions
+        # After shift, mask should indicate response positions in the input_ids domain
+        # Response in original concat: positions [prompt_len, prompt_len+response_len)
+        # After shift (input_ids = concat[:-1]): response prediction starts at position prompt_len-1
         prompt_len, response_len = labels_cache[i]
-        mask_prompt = torch.zeros(prompt_len - 1)
-        mask_response = torch.ones(response_len)
-        curr_mask = torch.concat([mask_prompt, mask_response]).bool()
-        mask_batch[i, :len(curr_mask)] = curr_mask
+        mask_batch[i, prompt_len - 1:prompt_len + response_len - 1] = True
         
-        
-    print(f"\nFinal result")
-    print(f"input_ids_batch:\n{input_ids_batch}")
-    print(f"labels_batch:\n{input_ids_batch}")
-    print(f"mask_batch:\n{mask_batch}")
+    logger.debug(f"\nFinal result (before shift):")
+    logger.debug(f"input_ids_batch:\n{input_ids_batch}")
+    logger.debug(f"labels_batch:\n{labels_batch}")
+    logger.debug(f"mask_batch:\n{mask_batch}")
     
-    # construct and return 
+    # Shift at the end: input_ids = batch[:-1], labels = batch[1:], mask = batch[:-1]
     result = {
-        "input_ids": input_ids_batch,
-        "labels": labels_batch,
-        "response_mask": mask_batch,
+        "input_ids": input_ids_batch[:, :-1],
+        "labels": labels_batch[:, 1:],
+        "response_mask": mask_batch[:, :-1],
     }
     return result
             
@@ -159,8 +160,8 @@ if __name__ == '__main__':
         "of France?"
     ]
     
-    print("Check the token for id==0")
-    print(tokenizer.convert_ids_to_tokens([0]))
+    logger.debug("Check the token for id==0")
+    logger.debug(tokenizer.convert_ids_to_tokens([0]))
     
     
     tokenize_prompt_and_output(prompt_strs, output_strs, tokenizer)
