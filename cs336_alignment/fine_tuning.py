@@ -148,6 +148,14 @@ def tokenize_prompt_and_output(prompt_strs: List[str], output_strs: List[str], t
         "response_mask": mask_batch[:, :-1],
     }
     return result
+
+def compute_entropy(logits:torch.Tensor) -> torch.Tensor:
+    """
+    logits has the shape: (batch_size,sequence_length,vocab_size)
+    """
+    log_p = torch.log_softmax(logits, dim=-1)
+    entropy = -(log_p.exp() * log_p).sum(dim=-1)
+    return entropy
             
 if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-Math-1.5B")
