@@ -191,6 +191,32 @@ def masked_normalize(tensor, mask, dim=None, normalize_constant=1.0):
     return total_sum / normalize_constant
 
 
+def sft_microbatch_train_step(
+    policy_log_probs: torch.Tensor,
+    response_mask: torch.Tensor,
+    gradient_accumulation_steps: int,
+    normalize_constant: float = 1.0,
+) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    """
+    policy_log_probs: per-token log-probabilities
+    response_mask: 1 for response tokens, and 0 for prompt/padding
+    gradient_accumulation_steps: number of microbatchs per optimizer step
+    """
+    masked_log_prob_sum = masked_normalize(
+        policy_log_probs,
+        response_mask,
+        dim=None,
+        normalize_constant=normalize_constant,
+    )
+    batch_size = policy_log_probs.shape[0]
+    loss = -masked_log_prob_sum / (gradient_accumulation_steps * batch_size)
+    loss.backward()
+    metadata = {
+        "masked_log_prob_sum": masked_log_prob_sum.detach(),
+    }
+    return loss.detach(), metadata
+
+
             
 if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-Math-1.5B")
