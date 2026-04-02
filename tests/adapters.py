@@ -277,7 +277,18 @@ def run_masked_mean(tensor: torch.Tensor, mask: torch.Tensor, dim: int | None = 
         torch.Tensor, the mean of the tensor along the specified
             dimension, considering only the elements with mask value 1.
     """
-    raise NotImplementedError
+    # Apply mask to tensor (set non-masked positions to 0)
+    masked_tensor = tensor * mask
+
+    if dim is None:
+        # Sum all elements and divide by count of masked elements
+        return masked_tensor.sum() / mask.sum()
+    else:
+        # Compute sum over the dimension
+        sum_over_dim = masked_tensor.sum(dim=dim)
+        # Count non-zero mask elements along the dimension
+        count = mask.sum(dim=dim)
+        return sum_over_dim / count
 
 def run_sft_microbatch_train_step(
     policy_log_probs: torch.Tensor,
