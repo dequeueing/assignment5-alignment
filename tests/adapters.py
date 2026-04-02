@@ -42,9 +42,9 @@ def run_compute_group_normalized_rewards(
     group_size: int,
     advantage_eps: float,
     normalize_by_std: bool,
-) -> tuple[torch.Tensor, dict[str, float]]:
+) -> tuple[torch.Tensor, torch.Tensor, dict[str, float]]:
     """
-    Compute rewards for each group of rollout responses, 
+    Compute rewards for each group of rollout responses,
     normalized by the group size.
 
     For more on GRPO, see:
@@ -52,15 +52,15 @@ def run_compute_group_normalized_rewards(
         DeepSeek-R1: https://arxiv.org/abs/2501.12948
 
     Args:
-        reward_fn: Callable[[str, str], dict[str, float]], 
-            scores the rollout responses against the ground truths, 
-            producing a dict with keys 
+        reward_fn: Callable[[str, str], dict[str, float]],
+            scores the rollout responses against the ground truths,
+            producing a dict with keys
             "reward", "format_reward", and "answer_reward".
-        rollout_responses: list[str], rollouts from the policy. 
-            The length of this list is 
+        rollout_responses: list[str], rollouts from the policy.
+            The length of this list is
             `rollout_batch_size = n_prompts_per_rollout_batch * group_size`.
-        repeated_ground_truths: list[str], the ground truths for the examples. 
-            The length of this list is `rollout_batch_size`, 
+        repeated_ground_truths: list[str], the ground truths for the examples.
+            The length of this list is `rollout_batch_size`,
             because the ground truth for each example is repeated `group_size` times.
         group_size: int, number of rollouts per group.
         advantage_eps: float, epsilon to avoid division by zero
@@ -70,15 +70,54 @@ def run_compute_group_normalized_rewards(
 
     Returns:
         tuple[torch.Tensor, torch.Tensor, dict[str, float]]:
-            torch.Tensor of shape (rollout_batch_size,): 
+            torch.Tensor of shape (rollout_batch_size,):
                 group-normalized rewards for each rollout response.
-            torch.Tensor of shape (rollout_batch_size,): 
+            torch.Tensor of shape (rollout_batch_size,):
                 raw rewards for each rollout response.
             dict[str, float]: metadata for the rewards of the rollout batch.
                 You may choose what you wish to log here
                 (some statistics of the rewards, etc.).
     """
-    raise NotImplementedError
+    rollout_batch_size = len(rollout_responses)
+    n_groups = rollout_batch_size // group_size
+
+    # Compute raw rewards for each rollout
+    raw_rewards_list = []
+    for response, ground_truth in zip(rollout_responses, repeated_ground_truths):
+        reward_dict = reward_fn(response, ground_truth)
+        raw_rewards_list.append(reward_dict["reward"])
+
+    raw_rewards = torch.tensor(raw_rewards_list, dtype=torch.float32)
+
+    # Reshape into groups: (n_groups, group_size)
+    raw_rewards_grouped = raw_rewards.view(n_groups, group_size)
+
+    # Compute group mean
+    group_mean = raw_rewards_grouped.mean(dim=1, keepdim=True)  # (n_groups, 1)
+
+    # Normalize within each group
+    if normalize_by_std:
+        group_std = raw_rewards_grouped.std(dim=1, keepdim=True)  # (n_groups, 1)
+        normalized_grouped = (raw_rewards_grouped - group_mean) / (group_std + advantage_eps)
+    else:
+        normalized_grouped = raw_rewards_grouped - group_mean
+
+    # Flatten back to (rollout_batch_size,)
+    normalized_rewards = normalized_grouped.view(-1)
+
+    # Compute metadata statistics
+    metadata = {
+        "raw_reward_mean": raw_rewards.mean().item(),
+        "raw_reward_std": raw_rewards.std().item(),
+        "raw_reward_max": raw_rewards.max().item(),
+        "raw_reward_min": raw_rewards.min().item(),
+        "normalized_reward_mean": normalized_rewards.mean().item(),
+        "normalized_reward_std": normalized_rewards.std().item(),
+        "normalized_reward_max": normalized_rewards.max().item(),
+        "normalized_reward_min": normalized_rewards.min().item(),
+    }
+
+    return normalized_rewards, raw_rewards, metadata
 
 
 def run_compute_entropy(logits: torch.Tensor) -> torch.Tensor:
