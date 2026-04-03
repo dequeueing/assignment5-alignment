@@ -27,7 +27,7 @@ from tqdm.auto import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 from transformers import get_linear_schedule_with_warmup
 
-from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
+from cs336_alignment.drgrpo_grader import r1_zero_reward_fn, question_only_reward_fn
 from cs336_alignment.expert_iter import (
     FormattedExample,
     build_r1_zero_prompt,
@@ -80,6 +80,10 @@ class GRPOConfig:
     # Normalization
     advantage_eps: float = 1e-6
     use_std_normalization: bool = True
+    use_length_normalization: bool = False  # If True, use masked_normalize instead of masked_mean
+
+    # Reward function
+    reward_fn_name: str = "r1_zero"  # "r1_zero" or "question_only"
 
     # Model/sampling settings
     seed: int = 42
@@ -88,6 +92,7 @@ class GRPOConfig:
     # Validation
     max_eval_samples: int = 1024
     eval_every_steps: int = 5
+    save_every_steps: int = 0  # 0 = only save final checkpoint
 
 
 class RolloutDataset(Dataset):
@@ -342,9 +347,12 @@ def run_grpo_experiment(config: GRPOConfig) -> dict[str, object]:
             seed=config.seed + step_idx,
         )
 
+        # Select reward function
+        train_reward_fn = r1_zero_reward_fn if config.reward_fn_name == "r1_zero" else question_only_reward_fn
+
         # Compute advantages
         advantages, raw_rewards, reward_metadata = compute_advantages(
-            reward_fn=r1_zero_reward_fn,
+            reward_fn=train_reward_fn,
             rollout_responses=rollout_responses,
             repeated_ground_truths=ground_truths,
             group_size=config.group_size,
@@ -366,27 +374,43 @@ def run_grpo_experiment(config: GRPOConfig) -> dict[str, object]:
             for i in range(len(rollout_responses))
         ]
         rollout_dataset = RolloutDataset(rollout_examples)
+        # Use shuffle=False for consistent batch-to-index mapping
+        # (needed for correct advantage indexing and off-policy old_log_probs)
         rollout_loader = DataLoader(
             rollout_dataset,
             batch_size=micro_train_batch_size,
-            shuffle=True,
+            shuffle=False,
             collate_fn=_build_collate_fn(tokenizer),
         )
 
-        # Compute old_log_probs for grpo_clip (only needed for off-policy)
-        # For on-policy (epochs_per_rollout_batch=1), we compute on-the-fly
-        old_log_probs = None
+        # Pre-compute old_log_probs for grpo_clip before any parameter updates.
+        # For off-policy (epochs_per_rollout_batch > 1), these represent the
+        # "behavior policy" that generated the rollouts. For on-policy (1 epoch),
+        # old_log_probs == current policy log_probs so we compute them the same way.
+        old_log_probs_per_batch = None
         if config.loss_type == "grpo_clip":
-            # For grpo_clip, we need old_log_probs from the current policy before update
-            # Since we're on-policy, we compute them along with the new ones
-            pass
+            old_log_probs_per_batch = []
+            model.eval()
+            with torch.inference_mode():
+                for _batch in rollout_loader:
+                    _input_ids = _batch["input_ids"].to(device)
+                    _labels = _batch["labels"].to(device)
+                    _output = get_response_log_probs(
+                        model=model, input_ids=_input_ids, labels=_labels
+                    )
+                    old_log_probs_per_batch.append(_output["log_probs"].cpu())
+            model.train()
 
         # Training for epochs_per_rollout_batch
+        # For off-policy (epochs > 1), we do optimizer.step() after each epoch
+        # so the model parameters change between epochs, making the ratio deviate
+        # from 1.0 and enabling the clipping mechanism.
         model.train()
         optimizer.zero_grad(set_to_none=True)
 
         epoch_losses = []
         epoch_clip_fractions = []
+        grad_norm_val = 0.0
 
         for epoch_idx in range(config.epochs_per_rollout_batch):
             for batch_idx, batch in enumerate(rollout_loader):
@@ -402,13 +426,6 @@ def run_grpo_experiment(config: GRPOConfig) -> dict[str, object]:
                     return_token_entropy=False,
                 )
                 policy_log_probs = policy_output["log_probs"]
-
-                # For grpo_clip, we need old_log_probs
-                # On-policy: we use the same policy's log probs from the previous step
-                # Actually for on-policy GRPO with single epoch, old_log_probs == policy_log_probs
-                if old_log_probs is None and config.loss_type == "grpo_clip":
-                    # Detach to treat as old log probs for clipping
-                    old_log_probs = policy_log_probs.detach()
 
                 # Get advantages for this microbatch
                 start_idx = batch_idx * micro_train_batch_size
@@ -426,13 +443,16 @@ def run_grpo_experiment(config: GRPOConfig) -> dict[str, object]:
                     "loss_type": config.loss_type,
                 }
 
+                if config.use_length_normalization:
+                    loss_kwargs["constant_normalizer"] = float(config.sampling_max_tokens)
+
                 if config.loss_type == "no_baseline":
                     loss_kwargs["raw_rewards"] = batch_raw_rewards
                 else:
                     loss_kwargs["advantages"] = batch_advantages
 
                 if config.loss_type == "grpo_clip":
-                    loss_kwargs["old_log_probs"] = old_log_probs
+                    loss_kwargs["old_log_probs"] = old_log_probs_per_batch[batch_idx].to(device)
                     loss_kwargs["cliprange"] = config.cliprange
 
                 loss, metadata = run_grpo_microbatch_train_step(**loss_kwargs)
@@ -443,10 +463,14 @@ def run_grpo_experiment(config: GRPOConfig) -> dict[str, object]:
 
                 # Note: backward is called inside run_grpo_microbatch_train_step
 
-        # Gradient step
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        optimizer.step()
-        optimizer.zero_grad(set_to_none=True)
+            # Gradient step after each epoch (enables true off-policy training)
+            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            grad_norm_val = float(grad_norm.item()) if isinstance(grad_norm, torch.Tensor) else float(grad_norm)
+            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+
+        # Compute mean response length (in tokens, estimated from rollout responses)
+        mean_response_length = sum(len(r.split()) for r in rollout_responses) / len(rollout_responses) if rollout_responses else 0.0
 
         step_elapsed = time.time() - step_start_time
 
@@ -473,6 +497,8 @@ def run_grpo_experiment(config: GRPOConfig) -> dict[str, object]:
             "advantage_std": float(advantages.std().item()),
             "train_loss_mean": sum(epoch_losses) / len(epoch_losses) if epoch_losses else 0.0,
             "train_clip_fraction": sum(epoch_clip_fractions) / len(epoch_clip_fractions) if epoch_clip_fractions else 0.0,
+            "gradient_norm": grad_norm_val,
+            "mean_response_length": mean_response_length,
             "val_accuracy": val_accuracy,
             "val_mean_reward": val_stats.get("mean_reward", 0.0),
             "val_format_ok_rate": val_stats.get("format_ok_rate", 0.0),
@@ -488,12 +514,14 @@ def run_grpo_experiment(config: GRPOConfig) -> dict[str, object]:
             f"[step {step_idx}/{config.n_grpo_steps}] "
             f"rollout_reward={step_metrics['rollout_reward_mean']:.4f} "
             f"train_loss={step_metrics['train_loss_mean']:.4f} "
+            f"grad_norm={grad_norm_val:.4f} "
             f"val_acc={val_accuracy if val_accuracy is not None else 'N/A'} "
             f"elapsed={step_elapsed:.1f}s"
         )
 
         # Save checkpoint
-        if step_idx % config.eval_every_steps == 0 or step_idx == config.n_grpo_steps:
+        save_interval = config.save_every_steps if config.save_every_steps > 0 else config.n_grpo_steps
+        if step_idx % save_interval == 0 or step_idx == config.n_grpo_steps:
             step_model_dir = output_dir / f"step_{step_idx}"
             save_pretrained(str(step_model_dir), model, tokenizer)
 
@@ -531,6 +559,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--loss-type", type=str, default="reinforce_with_baseline",
                         choices=["no_baseline", "reinforce_with_baseline", "grpo_clip"])
     parser.add_argument("--cliprange", type=float, default=0.2)
+    parser.add_argument("--reward-fn", type=str, default="r1_zero",
+                        choices=["r1_zero", "question_only"])
 
     # Sampling
     parser.add_argument("--sampling-temperature", type=float, default=1.0)
@@ -541,12 +571,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--advantage-eps", type=float, default=1e-6)
     parser.add_argument("--use-std-normalization", action="store_true", default=True)
     parser.add_argument("--no-std-normalization", dest="use_std_normalization", action="store_false")
+    parser.add_argument("--use-length-normalization", action="store_true", default=False,
+                        help="Use masked_normalize (constant_normalizer=max_tokens) instead of masked_mean")
 
     # Other settings
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.85)
     parser.add_argument("--max-eval-samples", type=int, default=1024)
     parser.add_argument("--eval-every-steps", type=int, default=5)
+    parser.add_argument("--save-every-steps", type=int, default=0,
+                        help="Save checkpoints every N steps. 0 = only save final checkpoint.")
 
     return parser
 
@@ -569,15 +603,18 @@ def main() -> None:
         epochs_per_rollout_batch=args.epochs_per_rollout_batch,
         loss_type=args.loss_type,
         cliprange=args.cliprange,
+        reward_fn_name=args.reward_fn,
         sampling_temperature=args.sampling_temperature,
         sampling_min_tokens=args.sampling_min_tokens,
         sampling_max_tokens=args.sampling_max_tokens,
         advantage_eps=args.advantage_eps,
         use_std_normalization=args.use_std_normalization,
+        use_length_normalization=args.use_length_normalization,
         seed=args.seed,
         gpu_memory_utilization=args.gpu_memory_utilization,
         max_eval_samples=args.max_eval_samples,
         eval_every_steps=args.eval_every_steps,
+        save_every_steps=args.save_every_steps,
     )
 
     summary = run_grpo_experiment(config)

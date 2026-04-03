@@ -7,7 +7,9 @@ requires-python = ">=3.11,<3.13"  # Python 3.13 not yet supported for some deps
 dependencies = [
     "accelerate>=1.5.2",
     "alpaca-eval",
+    "datasets>=2.14.4",
     "flash-attn==2.7.4.post1",  # Commented out due to CUDA 11.7+ requirement (current: 11.5)
+    "fsspec<2023.12.0",  # datasets 2.14.x is incompatible with newer fsspec glob validation
     "jupyter>=1.1.1",
     "math-verify[antlr4-13-2]>=0.7.0",
     "pylatexenc==2.10",
