@@ -502,7 +502,11 @@ def run_parse_gsm8k_response(
         str with the predicted numeric answer if the model output can be parsed into a prediction,
         else None.
     """
-    raise NotImplementedError
+    # Find all numbers in the output
+    numbers = re.findall(r'-?\d+', model_output)
+    if numbers:
+        return numbers[-1]  # Return the last number
+    return None
 
 
 def run_compute_per_instance_dpo_loss(
