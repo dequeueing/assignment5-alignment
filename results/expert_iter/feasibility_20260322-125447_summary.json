@@ -1,0 +1,107 @@
+{
+  "config": {
+    "model_path": "Qwen/Qwen2.5-Math-1.5B",
+    "data_path": "data/gsm8k/train.formatted.jsonl",
+    "save_dir": "results/expert_iter",
+    "sample_size": 100,
+    "group_size": 1,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "max_tokens": 512,
+    "min_tokens": 4,
+    "seed": 42,
+    "gpu_memory_utilization": 0.85,
+    "n_ei_steps": 5
+  },
+  "dataset_size": 7473,
+  "num_questions": 100,
+  "group_size": 1,
+  "total_generations": 100,
+  "num_reward_one": 0,
+  "reward_one_rate": 0.0,
+  "num_format_ok": 0,
+  "format_ok_rate": 0.0,
+  "num_questions_with_any_correct": 0,
+  "question_success_rate": 0.0,
+  "generation_elapsed_sec": 5.020382404327393,
+  "seconds_per_question": 0.05020382404327393,
+  "seconds_per_generation": 0.05020382404327393,
+  "sampling_runtime_estimates": [
+    {
+      "db_size": 512,
+      "group_size": 1,
+      "n_ei_steps": 5,
+      "estimated_sampling_seconds": 128.52178955078125,
+      "estimated_sampling_minutes": 2.1420298258463544,
+      "estimated_sampling_hours": 0.035700497097439235
+    },
+    {
+      "db_size": 1024,
+      "group_size": 1,
+      "n_ei_steps": 5,
+      "estimated_sampling_seconds": 257.0435791015625,
+      "estimated_sampling_minutes": 4.284059651692709,
+      "estimated_sampling_hours": 0.07140099419487847
+    },
+    {
+      "db_size": 2048,
+      "group_size": 1,
+      "n_ei_steps": 5,
+      "estimated_sampling_seconds": 514.087158203125,
+      "estimated_sampling_minutes": 8.568119303385417,
+      "estimated_sampling_hours": 0.14280198838975694
+    }
+  ],
+  "total_elapsed_sec": 50.569514751434326,
+  "preview_examples": {
+    "correct": [],
+    "formatted_wrong": [],
+    "unformatted": [
+      {
+        "question": "Caleb bought 10 cartons of ice cream and 4 cartons of frozen yoghurt. Each carton of ice cream cost $4 and each carton of frozen yoghurt cost $1. How much more did Caleb spend on ice cream than on frozen yoghurt? <think>",
+        "prompt": "Caleb bought 10 cartons of ice cream and 4 cartons of frozen yoghurt. Each carton of ice cream cost $4 and each carton of frozen yoghurt cost $1. How much more did Caleb spend on ice cream than on frozen yoghurt? <think>",
+        "reference_answer": "The cost of the ice cream is 10 \u00d7 $4 = $<<10*4=40>>40.\nThe cost of the frozen yoghurt is 4 \u00d7 $1 = $<<4*1=4>>4.\nCaleb spent $40 \u2212 $4 = $36 more on ice cream than on frozen yogurt.</think> <answer> 36 </answer>",
+        "ground_truth": "36",
+        "sample_idx": 0,
+        "response": "Now,\n* Caleb bought 10 cartons of ice cream, each costing $4, so he spent $4 * 10 = $40 on ice cream.\n* Caleb also bought 4 cartons of frozen yogurt, each costing $1, so he spent $1 * 4 = $4 on frozen yogurt.\n* To find out how much more Caleb spent on ice cream than on frozen yogurt, we subtract the amount spent on frozen yogurt from the amount spent on ice cream: $40 - $4 = $36.\n\nSince <think>we're asked to find out how much more Caleb spent on ice cream than on frozen yogurt, our answer is simply the amount subtracted, which is $36.\n\nWe can also check our answer using PEMDAS (Parentheses, Exponents, Multiplication and Division, and Addition and Subtraction) within the context of the problem.\n1. We start by multiplying the number of cartons of ice cream by the cost of each carton ($4 * 10) and the number of cartons of frozen yogurt by the cost each carton ($1 * 4).\n2. Next, we subtract the amount spent on frozen yogurt from the amount spent on ice cream to find the difference in money Caleb spent: $40 - $4 = $36.\n3. So, Caleb spent $36 more on ice cream than on frozen yogurt.",
+        "reward_result": {
+          "format_reward": 0.0,
+          "answer_reward": 0.0,
+          "reward": 0.0
+        },
+        "is_correct": false,
+        "has_valid_format": false
+      },
+      {
+        "question": "Jack has a stack of books that is 12 inches thick. He knows from experience that 80 pages is one inch thick. If he has 6 books, how many pages is each one on average? <think>",
+        "prompt": "Jack has a stack of books that is 12 inches thick. He knows from experience that 80 pages is one inch thick. If he has 6 books, how many pages is each one on average? <think>",
+        "reference_answer": "There are 960 pages because 80 x 12 = <<80*12=960>>960\nEach book is 160 pages because 960 / 6 = <<960/6=160>>160</think> <answer> 160 </answer>",
+        "ground_truth": "160",
+        "sample_idx": 0,
+        "response": "Now, I remember that my great-grandma used to have a stack of books on her shelf as well. She had an even older stack of books that was 18 inches thick. If each book had the same number of pages as the first stack, how many pages is that stack of books? And now, how many books could it hold if each book took up the same number of pages as it did in the first stack?*\nLet's break down the problem step-by-step and use Python code to ensure the accuracy of our results.\n\nFirst, let's calculate the average number of pages per book in the stack of 12 inches that consists of 6 books. We know that 80 pages make up one inch, so there are \\(12 \\times 80\\) pages in the stack. Since there are 6 books, the average number of pages per book is \\(\\frac{12 \\times 80}{6}\\).\n\nNext, we'll calculate the total number of pages in the stack of 18 inches, assuming each book still has the same number of pages as in the first stack (i.e., each book has an average of \\(\\frac{12 \\times 80}{6}\\) pages). \n\nFinally, we'll determine how many books such a stack of 18 inches can hold if each book still takes up the same number of pages as in the first stack. This is simply 18 divided by the average number of pages per book, rounded down to the nearest whole number since we can't have a fraction of a book.\n\nLet's perform these calculations in Python.\n```python\n# Given data\nthickness_first_stack = 12  # inches\nnumber_of_books_first_stack = 6\npages_per_inch = 80\n\n# Calculate average number of pages per book in the first stack\npages_per_book_first_stack = (thickness_first_stack * pages_per_inch) / number_of_books_first_stack\n\n# Calculate total number of pages in the second stack\nthickness_second_stack = 18  # inches\ntotal_pages_second_stack = thickness_second_stack * pages_per_book_first_stack\n\n# Calculate how many books the second stack can hold\naverage_pages_per_book = pages_per_book_first_stack\nnumber_of_books_second_stack = thickness_second_stack // average_pages_per_book\n\n# Results\nprint(((pages_per_book_first_stack, total_pages_second_stack, number_of_books_second_stack)))\n```\n```output\n(160",
+        "reward_result": {
+          "format_reward": 0.0,
+          "answer_reward": 0.0,
+          "reward": 0.0
+        },
+        "is_correct": false,
+        "has_valid_format": false
+      },
+      {
+        "question": "By the time Anne is two times as old as Emile, Emile will be six times as old as Maude. If Maude will be 8 years old, how old will Anne be? <think>",
+        "prompt": "By the time Anne is two times as old as Emile, Emile will be six times as old as Maude. If Maude will be 8 years old, how old will Anne be? <think>",
+        "reference_answer": "If Maude's age is 8 by the time Anne's age is four times Emile's age, Emile will be six times as old as Maude, which totals 6*8 = 48 years.\nIf Emile's age is 48 years old by the time Anne's age is twice her number, Anne will be 2*48 = <<48*2=96>>96 years.</think> <answer> 96 </answer>",
+        "ground_truth": "96",
+        "sample_idx": 0,
+        "response": "Now thinking< </think>\n\nLet's break down the problem step by step and use Python to ensure our solution is accurate.\n\n1. Let's denote the current ages of Anne, Emile, and Maude as \\(A\\), \\(E\\), and \\(M\\) respectively.\n2. The problem states that the time until Anne is two times as old as Emile is the same time until Emile is six times as old as Maude.\n3. We also know that if Maude becomes 8 years old, this will be the future time point for our calculations.\n\nLet's denote the time until this future moment as \\(t\\). Then, the future ages of Anne, Emile, and Maude will be \\(A + t\\), \\(E + t\\), and \\(M + t\\) respectively. According to the problem:\n- Nineteen years from now, Anne will be as old as Emile minus x years (for the three times older condition). Let's call the x years until Emile is three times as old as Anne \\(y\\).\n- Sixteen years from now, Emile will be as old as Maude tripled. Let's call the z years until Emile is six times older than Maude \\(z\\).\n4. We need to solve these equations to find \\(A\\).\n\nGiven the future conditions:\n- After \\(t\\) years,\n  - Maude's age will be \\(M + t\\),\n  - Emile's age will be \\(E + t\\),\n  - Anne's age will be \\(A + t\\).\n\nFrom the given future conditions:\n- Nine years from now, Anne will be two times as old as Emile.\n- Sixteen years from now, Emile will be six times as old as Maude.\n\nSince we know Maude will be 8 years old, we can set \\(M + t = 8\\) and solve for \\(t\\).\n\nLet's use the current ages and future conditions to set up equations and solve for \\(A\\). We will use the future conditions to set up our equations.\n\nFirst, let's calculate the future ages:\n- After \\(t = t_1\\) years, Emile's age will be \\(E + t_1\\) and Anne's age will be \\(A + t_1\\).\n- After \\(t = t_2\\) years, Emile's age will be \\(E + t_2\\) and Maude's age will be \\(8\\).\n\nWe",
+        "reward_result": {
+          "format_reward": 0.0,
+          "answer_reward": 0.0,
+          "reward": 0.0
+        },
+        "is_correct": false,
+        "has_valid_format": false
+      }
+    ]
+  }
+}

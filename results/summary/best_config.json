@@ -1,0 +1,4 @@
+{
+  "learning_rate": 5e-06,
+  "problem": "grpo_learning_rate"
+}
