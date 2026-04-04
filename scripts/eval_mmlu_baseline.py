@@ -9,7 +9,21 @@ from cs336_alignment.load_mmlu import load_mmlu_split
 from tests.adapters import run_parse_mmlu_response
 
 
-MMLU_PROMPT_TEMPLATE = """Answer the following multiple choice question about {subject}. Respond with a single
+SYSTEM_PROMPT = """Below is a list of conversations between a human and an AI assistant (you).
+Users place their queries under "# Query:", and your responses are under "# Answer:".
+You are a helpful, respectful, and honest assistant.
+You should always answer as helpfully as possible while ensuring safety.
+
+Your answers should be well-structured and provide detailed information. They should also
+have an engaging tone.
+
+Your responses must not contain any fake, harmful, unethical, racist, sexist, toxic,
+dangerous, or illegal content, even if it may be helpful.
+
+Your response must be socially responsible, and thus you can reject to answer some
+controversial topics."""
+
+MMLU_INSTRUCTION_TEMPLATE = """Answer the following multiple choice question about {subject}. Respond with a single
 sentence of the form "The correct answer is _", filling the blank with the letter
 corresponding to the correct answer (i.e., A, B, C or D).
 Question: {question}
@@ -17,15 +31,20 @@ A. {options[0]}
 B. {options[1]}
 C. {options[2]}
 D. {options[3]}
-Answer:"""
+"""
+
+# Stop generation when we see this to avoid the model starting a new conversation turn
+STOP_STR = "# Query:"
 
 
 def format_prompt(example: dict) -> str:
-    return MMLU_PROMPT_TEMPLATE.format(
+    """Format full prompt with system prompt + instruction."""
+    instruction = MMLU_INSTRUCTION_TEMPLATE.format(
         subject=example["subject"],
         question=example["question"],
         options=example["options"],
     )
+    return f"{SYSTEM_PROMPT}\n# Query:\n{instruction}\n# Answer:"
 
 
 def main():
@@ -45,7 +64,7 @@ def main():
     # Generate
     print("Starting generation...")
     start_time = time.time()
-    sampling_params = SamplingParams(temperature=0.0, top_p=1.0, max_tokens=128)
+    sampling_params = SamplingParams(temperature=0.0, top_p=1.0, max_tokens=128, stop=STOP_STR)
     outputs = llm.generate(prompts, sampling_params)
     end_time = time.time()
 
